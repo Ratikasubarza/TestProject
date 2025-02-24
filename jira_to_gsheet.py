@@ -12,16 +12,21 @@ from multiprocessing import resource_tracker
 from oauth2client.service_account import ServiceAccountCredentials
 import google.generativeai as genai
 import time
+import base64
 
 
 # Configuration
-JIRA_SERVER = ""
+JIRA_SERVER = "https://finacceljira.atlassian.net"
 JIRA_API_TOKEN = ''
 JIRA_EMAIL = ''
 GEMINI_API_KEY = ""
 GOOGLE_CREDS_FILE = ''
 SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 SHEET_NAME = ""
+CONFLUENCE_URL = "https://finacceljira.atlassian.net/wiki"
+CONFLUENCE_USERNAME = ""  
+CONFLUENCE_API_TOKEN = ""
+CONFLUENCE_PAGE_ID = ""  # ID halaman Confluence yang ingin diambil
 
 def fetch_jira_requirement(jira_id):
     """Fetch the requirement from a JIRA ticket."""
@@ -56,6 +61,59 @@ def fetch_jira_requirement(jira_id):
         print(f"❌ ERROR: Failed to fetch Jira requirement (Status {response.status_code}).")
 
     return None
+
+
+def fetch_confluence_page(page_id):
+    url = f"{CONFLUENCE_URL}/rest/api/content/{CONFLUENCE_PAGE_ID}?expand=body.storage"
+
+    # Encode username dan API token ke dalam format Basic Auth
+    auth_string = f"{CONFLUENCE_USERNAME}:{CONFLUENCE_API_TOKEN}"
+    auth_encoded = base64.b64encode(auth_string.encode()).decode()
+
+    # Headers untuk autentikasi
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Basic {auth_encoded}"
+    }
+
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        try:
+            page_data = response.json()
+            
+            # Extract page content
+            page_content = page_data["body"]["storage"]["value"]
+            
+            # Find the section with "Description" (basic string search or regex)
+            if "Description:" in page_content:
+                description_start = page_content.find("Description:") + len("Description:")
+                description_details = page_content[description_start:].strip()
+                
+                # Optional: Clean up HTML tags if needed (using regex or BeautifulSoup)
+                return description_details
+            else:
+                print("⚠️ WARNING: 'Description' section not found in Confluence page.")
+                return page_content  # Return full content if no specific description
+            
+        except KeyError:
+            print("❌ ERROR: Response structure is not as expected.")
+            return None
+    elif response.status_code == 401:
+        print("❌ ERROR: Unauthorized. Check your API Token or credentials.")
+        return None
+    else:
+        print(f"❌ ERROR: Failed to fetch Confluence page {page_id} (Status {response.status_code})")
+        return None
+
+# Contoh Penggunaan
+requirement_text = fetch_confluence_page(CONFLUENCE_PAGE_ID)
+
+if requirement_text:
+    print("✅ Requirement berhasil diambil dari Confluence:")
+    print(requirement_text)
+else:
+    print("❌ ERROR: Requirement tidak ditemukan atau gagal diambil.")
 
 def parse_jira_description(adf):
     """Parses Jira's Atlassian Document Format (ADF) to extract text, tables, and images."""
@@ -259,21 +317,55 @@ def test_google_sheets():
         client = gspread.authorize(creds)
         spreadsheet_list = client.openall()
         print("✅ Available Spreadsheets:", [s.title for s in spreadsheet_list])
-        sheet = client.open("sheet_name").sheet1
+        sheet = client.open("ratika").sheet1
         print("✅ Successfully accessed Google Sheets!")
     except Exception as e:
         print(f"❌ Error accessing Google Sheets: {e}")
         
+def main():
+    print("🚀 Mengambil requirement dari Confluence...")
+    requirement_text = fetch_confluence_page(CONFLUENCE_PAGE_ID)
 
-if __name__ == "__main__":
-    jira_id = ""  # Replace with your JIRA Issue ID
-    requirement = fetch_jira_requirement(jira_id)
-
-    if requirement:
-        test_cases = generate_test_cases(requirement)
-        write_to_google_sheets('ratika', test_cases)
+    if requirement_text:
+        print("✅ Requirement berhasil diambil! Generating test cases...")
+        test_cases = generate_test_cases(requirement_text)  # Pastikan fungsi ini sudah ada
+        write_to_google_sheets("ratika", test_cases)
     else:
-        print("⚠️ No requirement found. Exiting.")
+        print("❌ ERROR: Requirement tidak ditemukan atau gagal diambil.")        
         
-# Run the test function
-test_google_sheets()
+        
+if __name__ == "__main__":
+    print("🚀 Starting requirement retrieval...")
+
+    # Define JIRA ID or Confluence Page ID
+    jira_id = "MER-895"  # Replace with your JIRA ID
+    # confluence_page_id = "3578953729"  # Replace with your Confluence Page ID
+
+    # Fetch requirement from JIRA or Confluence
+    requirement_text = None
+    if jira_id:
+        print(f"📌 Fetching requirement from JIRA ID: {jira_id}...")
+        requirement_text = fetch_jira_requirement(jira_id)  # Fetch from JIRA
+    
+    # if not requirement_text and confluence_page_id:
+    #     print(f"📌 Fetching requirement from Confluence Page ID: {confluence_page_id}...")
+    #     requirement_text = fetch_confluence_page(confluence_page_id)  # Fetch from Confluence
+    
+    # Validate requirement retrieval
+    if requirement_text:
+        print("✅ Requirement successfully retrieved!")
+
+        # Generate test cases
+        test_cases = generate_test_cases(requirement_text)
+
+        # Ensure test cases are generated
+        if test_cases:
+            print(f"✅ {len(test_cases)} test cases generated successfully.")
+
+            # Write to Google Sheets
+            write_to_google_sheets("", test_cases)
+            print("✅ Test cases successfully written to Google Sheets!")
+        else:
+            print("❌ ERROR: Test cases generation failed.")
+    else:
+        print("⚠️ No requirement found from JIRA or Confluence. Exiting.")
