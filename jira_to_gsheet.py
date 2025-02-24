@@ -259,14 +259,14 @@ def test_google_sheets():
         client = gspread.authorize(creds)
         spreadsheet_list = client.openall()
         print("✅ Available Spreadsheets:", [s.title for s in spreadsheet_list])
-        sheet = client.open("ratika").sheet1
+        sheet = client.open("sheet_name").sheet1
         print("✅ Successfully accessed Google Sheets!")
     except Exception as e:
         print(f"❌ Error accessing Google Sheets: {e}")
         
 
 if __name__ == "__main__":
-    jira_id = "KVN-2124"  # Replace with your JIRA Issue ID
+    jira_id = ""  # Replace with your JIRA Issue ID
     requirement = fetch_jira_requirement(jira_id)
 
     if requirement:
